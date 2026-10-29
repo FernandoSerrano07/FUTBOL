@@ -49,6 +49,14 @@
     background: var(--ambar); border: 6px solid var(--cal); box-shadow: 0 8px 0 #b78300;
   }
   #patear.activo { transform: translateY(6px); box-shadow: 0 2px 0 #b78300; }
+  .botones { display: flex; flex-direction: column; align-items: center; gap: 18px; }
+  @media (orientation: portrait) { .botones { flex-direction: row-reverse; } }
+  #correr {
+    width: min(28vmin, 130px); aspect-ratio: 1; border-radius: 50%;
+    font: 400 clamp(14px, 4vmin, 19px)/1 var(--display); color: var(--cal);
+    background: var(--pasto); border: 5px solid var(--cal); box-shadow: 0 6px 0 #061a10;
+  }
+  #correr.activo { background: var(--color); color: var(--fondo); transform: translateY(5px); box-shadow: 0 1px 0 #061a10; }
   #aviso {
     position: fixed; inset: 0; display: grid; place-items: center; text-align: center; padding: 24px;
     background: rgba(10,32,22,.94); font-size: 20px; line-height: 1.4;
@@ -64,7 +72,10 @@
 </header>
 <div class="mando">
   <div id="pad" aria-label="Joystick: arrastrá para moverte"><div id="perilla"></div></div>
-  <button id="patear" aria-label="Patear">PATEAR</button>
+  <div class="botones">
+    <button id="patear" aria-label="Patear">PATEAR</button>
+    <button id="correr" aria-label="Correr (mantener apretado)">CORRER</button>
+  </div>
 </div>
 <div id="aviso" hidden></div>
 <div id="flash"></div>
@@ -86,7 +97,7 @@
   function conectar() {
     const proto = location.protocol === "https:" ? "wss" : "ws";
     ws = new WebSocket(`${proto}://${location.host}/ws/${codigo}/control`);
-    ws.onopen = () => { intento = 0; estado.textContent = "Conectado"; estado.className = "ok"; };
+    ws.onopen = () => { intento = 0; corriendo = false; turbo.classList.remove("activo"); estado.textContent = "Conectado"; estado.className = "ok"; };
     ws.onmessage = ev => {
       let m; try { m = JSON.parse(ev.data); } catch (e) { return; }
       if (m.type === "asignado") {
@@ -145,6 +156,16 @@
     e.preventDefault(); boton.classList.add("activo"); mandar({ type: "patear" }); vibrar(25);
   });
   ["pointerup", "pointerleave", "pointercancel"].forEach(t => boton.addEventListener(t, () => boton.classList.remove("activo")));
+
+  // Botón correr: se mantiene apretado mientras querés ir más rápido
+  const turbo = $("correr");
+  let corriendo = false;
+  function correr(si) {
+    if (si === corriendo) return;
+    corriendo = si; turbo.classList.toggle("activo", si); mandar({ type: "correr", on: si });
+  }
+  turbo.addEventListener("pointerdown", e => { e.preventDefault(); turbo.setPointerCapture(e.pointerId); correr(true); vibrar(15); });
+  ["pointerup", "pointercancel", "lostpointercapture"].forEach(t => turbo.addEventListener(t, () => correr(false)));
 
   // Envío del joystick: ~30 veces por segundo cuando cambia, y cada 250 ms para mantener vivo
   let ultimo = 0;
