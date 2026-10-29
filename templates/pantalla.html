@@ -35,6 +35,11 @@
   .slot i { width: 16px; height: 16px; border-radius: 50%; }
   .slot.listo { border-color: var(--cal); }
   .acciones { display: flex; gap: 10px; flex-wrap: wrap; }
+  .grupo { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .grupo .rotulo { font-size: 14px; color: var(--suave); text-transform: uppercase; letter-spacing: 1.2px; margin-right: 4px; }
+  button.opcion { background: transparent; color: var(--cal); border: 2px solid rgba(244,247,242,.35); padding: 10px 14px; font-size: 16px; }
+  button.opcion.activo { background: var(--cal); color: var(--tinta); border-color: var(--cal); }
+  .falta { margin: 0; font-weight: 700; font-size: 16px; color: var(--tinta); background: var(--ambar); border-radius: 10px; padding: 10px 12px; }
   button {
     font: 700 18px/1 var(--texto); text-transform: uppercase; letter-spacing: 1.2px; cursor: pointer;
     padding: 14px 20px; border-radius: 12px; border: 3px solid var(--ambar); background: var(--ambar); color: var(--tinta);
@@ -62,15 +67,27 @@
       <p class="paso">Escaneá el código con la cámara del teléfono, o entrá a la página y escribí:</p>
       <div class="codigo" id="codigo">----</div>
       <div class="url" id="url"></div>
+      <div class="grupo" role="group" aria-label="Modo de juego">
+        <span class="rotulo">Modo</span>
+        <button class="opcion activo" data-modo="uno" aria-pressed="true">1 jugador · contra la compu</button>
+        <button class="opcion" data-modo="dos" aria-pressed="false">2 jugadores</button>
+      </div>
+      <div class="grupo" id="nivelBox" role="group" aria-label="Dificultad de la compu">
+        <span class="rotulo">Compu</span>
+        <button class="opcion" data-nivel="facil" aria-pressed="false">Fácil</button>
+        <button class="opcion activo" data-nivel="normal" aria-pressed="true">Normal</button>
+        <button class="opcion" data-nivel="dificil" aria-pressed="false">Difícil</button>
+      </div>
       <div class="slots">
         <div class="slot" id="slot1"><i style="background:var(--azul)"></i><span>Jugador 1: esperando</span></div>
         <div class="slot" id="slot2"><i style="background:var(--rojo)"></i><span>Jugador 2: la compu</span></div>
       </div>
+      <p class="falta" id="falta" hidden>Falta el jugador 2: que escanee el QR con otro teléfono, o que use las flechas y Enter del teclado.</p>
       <div class="acciones">
         <button id="empezar">Empezar partido</button>
         <button class="sec" id="completa">Pantalla completa</button>
       </div>
-      <p class="teclas">También se puede jugar con el teclado. Jugador 1: W A S D y Espacio. Jugador 2: flechas y Enter. Partido de 3 minutos. Con PATEAR en el teléfono también empieza.</p>
+      <p class="teclas">También se puede jugar con el teclado. Jugador 1: W A S D y Espacio. Jugador 2: flechas y Enter (en modo 1 jugador, las flechas también mueven al jugador 1). Partido de 3 minutos. Con PATEAR en el teléfono también empieza.</p>
     </div>
   </div>
 </div>
@@ -105,6 +122,10 @@
   const entrada = { 1: { x: 0, y: 0, patear: false }, 2: { x: 0, y: 0, patear: false } };
   const origen = { 1: null, 2: null };        // "tel" | "tecla" | null
   const enfriar = { 1: 0, 2: 0 };
+  let modoJuego = "uno", nivel = "normal";
+  const NIVELES = { facil: { vel: 0.6, pausa: 0.95, azar: 0.9 }, normal: { vel: 0.84, pausa: 0.55, azar: 0.6 }, dificil: { vel: 1.02, pausa: 0.28, azar: 0.3 } };
+  const NOMBRE_NIVEL = { facil: "Fácil", normal: "Normal", dificil: "Difícil" };
+  const compu = () => modoJuego === "uno" || !origen[2];
   let goles = { 1: 0, 2: 0 }, tiempo = DURACION, modo = "lobby", pausa = 0, anotador = 0, cpuPausa = 0, temblor = 0;
 
   // ---------- conexión ----------
@@ -117,24 +138,35 @@
       let m; try { m = JSON.parse(ev.data); } catch (e) { return; }
       const n = m.jugador;
       if (m.type === "estado") { m.jugadores.forEach(j => origen[j] = "tel"); pintarSlots(); }
-      else if (m.type === "entra") { origen[n] = "tel"; mandar({ type: "hola", para: n }); pintarSlots(); }
+      else if (m.type === "entra") { origen[n] = "tel"; saludar(n); pintarSlots(); }
       else if (m.type === "sale") { if (origen[n] === "tel") origen[n] = null; entrada[n].x = entrada[n].y = 0; pintarSlots(); }
       else if (m.type === "mover" && entrada[n]) {
+        if (n === 2 && modoJuego === "uno") return;
         entrada[n].x = Math.max(-1, Math.min(1, +m.x || 0));
         entrada[n].y = Math.max(-1, Math.min(1, +m.y || 0));
       }
-      else if (m.type === "patear" && entrada[n]) { if (modo === "lobby" || modo === "fin") empezar(); else entrada[n].patear = true; }
+      else if (m.type === "patear" && entrada[n]) {
+        if (modo === "lobby" || modo === "fin") empezar();
+        else if (!(n === 2 && modoJuego === "uno")) entrada[n].patear = true;
+      }
     };
     ws.onclose = () => setTimeout(conectar, Math.min(4000, 500 * ++intento));
   }
   function mandar(o) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(o)); }
 
+  function saludar(n) {
+    if (n === 2 && modoJuego === "uno") mandar({ type: "aviso", para: 2, titulo: "Juega la compu", texto: "La cancha está en modo 1 jugador. Para jugar vos, que elijan 2 jugadores en la pantalla." });
+    else mandar({ type: "hola", para: n });
+  }
   function pintarSlots() {
+    $("nivelBox").hidden = modoJuego !== "uno";
+    if (modoJuego === "uno" || origen[2]) $("falta").hidden = true;
     [1, 2].forEach(n => {
       const s = $("slot" + n), o = origen[n];
-      const txt = o === "tel" ? "con teléfono" : o === "tecla" ? "con teclado" : (n === 1 ? "esperando" : "la compu");
+      let txt = o === "tel" ? "con teléfono" : o === "tecla" ? "con teclado" : "esperando";
+      if (n === 2 && modoJuego === "uno") txt = `la compu (${NOMBRE_NIVEL[nivel]})`;
       s.querySelector("span").textContent = `Jugador ${n}: ${txt}`;
-      s.classList.toggle("listo", !!o);
+      s.classList.toggle("listo", !!o || (n === 2 && modoJuego === "uno"));
     });
   }
 
@@ -146,10 +178,11 @@
   };
   addEventListener("keydown", e => {
     if (e.target.tagName === "BUTTON" && (e.code === "Space" || e.code === "Enter")) return;
-    for (const n of [1, 2]) {
-      const m = MAPA[n];
+    for (const k of [1, 2]) {
+      const m = MAPA[k];
       if (Object.values(m).includes(e.code)) {
         e.preventDefault();
+        const n = modoJuego === "uno" ? 1 : k;   // en modo 1 jugador ambos juegos de teclas mueven al J1
         if (origen[n] !== "tel") { origen[n] = "tecla"; pintarSlots(); }
         if (e.code === m.pat && !teclas.has(e.code)) {
           if (modo === "lobby" || modo === "fin") empezar(); else entrada[n].patear = true;
@@ -162,9 +195,11 @@
   function leerTeclado() {
     for (const n of [1, 2]) {
       if (origen[n] !== "tecla") continue;
-      const m = MAPA[n];
-      let x = (teclas.has(m.der) ? 1 : 0) - (teclas.has(m.izq) ? 1 : 0);
-      let y = (teclas.has(m.aba) ? 1 : 0) - (teclas.has(m.arr) ? 1 : 0);
+      if (n === 2 && modoJuego === "uno") continue;
+      const mapas = modoJuego === "uno" ? [MAPA[1], MAPA[2]] : [MAPA[n]];
+      const t = c => mapas.some(m => teclas.has(m[c]));
+      let x = (t("der") ? 1 : 0) - (t("izq") ? 1 : 0);
+      let y = (t("aba") ? 1 : 0) - (t("arr") ? 1 : 0);
       const d = Math.hypot(x, y) || 1;
       entrada[n].x = x / d; entrada[n].y = y / d;
     }
@@ -178,6 +213,10 @@
     modo = "saque"; pausa = 1.1; cpuPausa = 0.4;
   }
   function empezar() {
+    if (modoJuego === "dos" && !origen[2]) {
+      $("lobby").hidden = false; $("mini").hidden = true; $("falta").hidden = false; return;
+    }
+    $("falta").hidden = true;
     goles = { 1: 0, 2: 0 }; tiempo = DURACION;
     $("lobby").hidden = true; $("mini").hidden = false;
     saque();
@@ -188,6 +227,7 @@
   }
   function terminar() {
     modo = "fin"; mandar({ type: "fin", marcador: goles });
+    setTimeout(() => { if (modo === "fin") { $("empezar").textContent = "Jugar de nuevo"; $("lobby").hidden = false; $("mini").hidden = true; } }, 3500);
   }
 
   // ---------- la compu ----------
@@ -203,18 +243,19 @@
     // Si el balón viene rápido hacia su arco, se mete a defender
     if (balon.vx > 220 && balon.x > CX) { tx = (balon.x + propio.x) / 2 + 40; ty = (balon.y + propio.y) / 2; }
     let dx = tx - p.x, dy = ty - p.y; const d = Math.hypot(dx, dy);
-    const fuerza = Math.min(1, d / 40) * 0.84;
+    const N = NIVELES[nivel];
+    const fuerza = Math.min(1, d / 40) * N.vel;
     e.x = d > 2 ? dx / d * fuerza : 0; e.y = d > 2 ? dy / d * fuerza : 0;
     const bx = balon.x - p.x, by = balon.y - p.y, bd = Math.hypot(bx, by);
     if (bd < RJ + RB + 14 && cpuPausa <= 0 && (bx / bd) * ax + (by / bd) * ay > 0.55) {
-      e.patear = true; cpuPausa = 0.55 + Math.random() * 0.6;
+      e.patear = true; cpuPausa = N.pausa + Math.random() * N.azar;
     }
   }
 
   // ---------- física ----------
   function actualizar(dt) {
     leerTeclado();
-    if (modo === "juego" && !origen[2]) cpu(dt);
+    if (modo === "juego" && compu()) cpu(dt);
     if (modo === "juego" || modo === "saque") {
       tiempo = modo === "juego" ? Math.max(0, tiempo - dt) : tiempo;
     }
@@ -358,8 +399,9 @@
     g.fillText(`${m}:${String(s).padStart(2, "0")}`, CX, 38);
     g.font = "700 15px 'Barlow Semi Condensed', Arial, sans-serif"; g.fillStyle = "rgba(244,247,242,.75)";
     const etiqueta = n => origen[n] === "tel" ? "Teléfono" : origen[n] === "tecla" ? "Teclado" : (n === 2 ? "Compu" : "Sin control");
+    const etiq2 = () => compu() ? `Compu · ${NOMBRE_NIVEL[nivel]}` : etiqueta(2);
     g.textAlign = "right"; g.fillText(`J1 · ${etiqueta(1)}`, CX - 175, 38);
-    g.textAlign = "left"; g.fillText(`J2 · ${etiqueta(2)}`, CX + 175, 38);
+    g.textAlign = "left"; g.fillText(`J2 · ${etiq2()}`, CX + 175, 38);
   }
   function roundRect(x, y, w, h, r) { g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r); g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath(); }
   function letrero(texto, sub, color) {
@@ -395,6 +437,19 @@
   requestAnimationFrame(cuadro);
 
   $("empezar").addEventListener("click", empezar);
+  document.querySelectorAll("[data-modo]").forEach(b => b.addEventListener("click", () => {
+    modoJuego = b.dataset.modo;
+    document.querySelectorAll("[data-modo]").forEach(x => { x.classList.toggle("activo", x === b); x.setAttribute("aria-pressed", x === b); });
+    if (modoJuego === "uno" && origen[2] === "tecla") origen[2] = null;
+    entrada[2].x = entrada[2].y = 0;
+    if (origen[2] === "tel") saludar(2);
+    pintarSlots();
+  }));
+  document.querySelectorAll("[data-nivel]").forEach(b => b.addEventListener("click", () => {
+    nivel = b.dataset.nivel;
+    document.querySelectorAll("[data-nivel]").forEach(x => { x.classList.toggle("activo", x === b); x.setAttribute("aria-pressed", x === b); });
+    pintarSlots();
+  }));
   $("completa").addEventListener("click", () => { document.documentElement.requestFullscreen?.().catch(() => {}); });
   pintarSlots();
   conectar();

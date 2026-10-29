@@ -4,8 +4,8 @@ Juego de fútbol donde **la computadora es la cancha y el teléfono es el contro
 Se juega desde el navegador, sin instalar nada: la pantalla muestra un código QR,
 lo escaneás con el teléfono y queda como mando con joystick y botón de **PATEAR**.
 
-- 1 teléfono: jugás contra la computadora.
-- 2 teléfonos: jugador 1 (azul) contra jugador 2 (rojo).
+- **Modo 1 jugador:** jugás contra la computadora, con dificultad Fácil, Normal o Difícil.
+- **Modo 2 jugadores:** jugador 1 (azul) contra jugador 2 (rojo), cada uno con su teléfono.
 - También funciona con teclado: J1 con W A S D + Espacio, J2 con flechas + Enter.
 - Partidos de 3 minutos, con marcador, "¡GOL!" en pantalla y vibración en el teléfono.
 

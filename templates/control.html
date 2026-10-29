@@ -76,7 +76,11 @@
   const estado = $("estado"), aviso = $("aviso");
   let ws, jugador = null, intento = 0, x = 0, y = 0, enviado = "";
 
-  function mostrarAviso(titulo, texto) { aviso.innerHTML = `<div><b>${titulo}</b>${texto}</div>`; aviso.hidden = false; }
+  function mostrarAviso(titulo, texto) {
+    const caja = document.createElement("div"), b = document.createElement("b"), t = document.createElement("span");
+    b.textContent = titulo; t.textContent = texto; caja.append(b, t);
+    aviso.replaceChildren(caja); aviso.hidden = false;
+  }
   function vibrar(p) { try { navigator.vibrate && navigator.vibrate(p); } catch (e) {} }
 
   function conectar() {
@@ -89,7 +93,7 @@
         jugador = m.jugador;
         document.documentElement.style.setProperty("--color", COLORES[jugador]);
         $("nombre").textContent = `Jugador ${jugador}`;
-        if (!m.pantalla) mostrarAviso("Falta la cancha", `Abrí la cancha en la computadora con el código <b style="display:inline;font-size:inherit">${codigo}</b>.`);
+        if (!m.pantalla) mostrarAviso("Falta la cancha", `Abrí la cancha en la computadora con el código ${codigo}.`);
         else aviso.hidden = true;
         vibrar(60);
       } else if (m.type === "lleno") {
@@ -100,6 +104,8 @@
         vibrar(m.anotador === jugador ? [120, 60, 120, 60, 300] : 250);
       } else if (m.type === "fin") {
         vibrar([300, 100, 300]);
+      } else if (m.type === "aviso") {
+        mostrarAviso(String(m.titulo || ""), String(m.texto || ""));
       } else if (m.type === "hola") {
         aviso.hidden = true;
       }
