@@ -54,6 +54,7 @@
   }
   #mini img { width: 64px; height: 64px; background: #fff; border-radius: 6px; padding: 2px; }
   #mini b { display: block; font: 400 20px/1 var(--display); letter-spacing: 4px; color: var(--ambar); }
+  #mini button { padding: 8px 10px; font-size: 14px; border-width: 2px; margin-left: 4px; }
 </style>
 </head>
 <body>
@@ -78,6 +79,12 @@
         <button class="opcion activo" data-nivel="normal" aria-pressed="true">Normal</button>
         <button class="opcion" data-nivel="dificil" aria-pressed="false">Difícil</button>
       </div>
+      <div class="grupo" role="group" aria-label="Duración del partido">
+        <span class="rotulo">Tiempo</span>
+        <button class="opcion" data-tiempo="60" aria-pressed="false">1 min</button>
+        <button class="opcion activo" data-tiempo="180" aria-pressed="true">3 min</button>
+        <button class="opcion" data-tiempo="300" aria-pressed="false">5 min</button>
+      </div>
       <div class="slots">
         <div class="slot" id="slot1"><i style="background:var(--azul)"></i><span>Jugador 1: esperando</span></div>
         <div class="slot" id="slot2"><i style="background:var(--rojo)"></i><span>Jugador 2: la compu</span></div>
@@ -86,13 +93,14 @@
       <div class="acciones">
         <button id="empezar">Empezar partido</button>
         <button class="sec" id="completa">Pantalla completa</button>
+        <button class="sec" id="sonido" aria-pressed="true">Sonido: sí</button>
       </div>
-      <p class="teclas">También se puede jugar con el teclado. Jugador 1: W A S D y Espacio. Jugador 2: flechas y Enter (en modo 1 jugador, las flechas también mueven al jugador 1). Partido de 3 minutos. Con PATEAR en el teléfono también empieza.</p>
+      <p class="teclas">También se puede jugar con el teclado. Jugador 1: W A S D, Espacio para patear y Shift izquierdo para correr. Jugador 2: flechas, Enter y Shift derecho (en modo 1 jugador, las flechas también mueven al jugador 1). Correr gasta energía: la barra debajo de cada jugador se recarga sola. P o Esc pausa el partido, M apaga el sonido. Con PATEAR en el teléfono también empieza.</p>
     </div>
   </div>
 </div>
 
-<div id="mini" hidden><img id="qrmini" alt=""><div>Unite con<b id="codmini">----</b></div></div>
+<div id="mini" hidden><img id="qrmini" alt=""><div>Unite con<b id="codmini">----</b></div><button class="sec" id="pausa">Pausa</button></div>
 
 <script>
 (() => {
@@ -103,7 +111,7 @@
   const ARCO = 190, PROF = 42;                 // ancho y profundidad del arco
   const RJ = 21, RB = 11;                       // radios jugador y balón
   const VEL = 340, ACEL = 11, PATADA = 780, ROCE = 1.05;
-  const DURACION = 180;
+  const TURBO = 1.45, GASTO = 0.5, RECARGA = 0.22;   // correr: velocidad extra, energía por segundo
   const COLOR = { 1: "#3fa9ff", 2: "#ff5b5b" };
 
   const codigo = location.pathname.split("/").pop().toUpperCase();
@@ -119,14 +127,72 @@
   };
   jug[1].ataca = 1; jug[2].ataca = -1;
   const balon = { x: CX, y: CY, vx: 0, vy: 0, rastro: [] };
-  const entrada = { 1: { x: 0, y: 0, patear: false }, 2: { x: 0, y: 0, patear: false } };
+  const entrada = { 1: { x: 0, y: 0, patear: false, correr: false }, 2: { x: 0, y: 0, patear: false, correr: false } };
+  const energia = { 1: 1, 2: 1 }, cansado = { 1: false, 2: false };
+  const chispas = [];                          // papelitos del festejo de gol
   const origen = { 1: null, 2: null };        // "tel" | "tecla" | null
   const enfriar = { 1: 0, 2: 0 };
-  let modoJuego = "uno", nivel = "normal";
-  const NIVELES = { facil: { vel: 0.6, pausa: 0.95, azar: 0.9 }, normal: { vel: 0.84, pausa: 0.55, azar: 0.6 }, dificil: { vel: 1.02, pausa: 0.28, azar: 0.3 } };
+  let modoJuego = "uno", nivel = "normal", duracion = 180, pausado = false;
+  // turbo: a partir de qué distancia al balón la compu sale corriendo
+  const NIVELES = { facil: { vel: 0.6, pausa: 0.95, azar: 0.9, turbo: Infinity }, normal: { vel: 0.84, pausa: 0.55, azar: 0.6, turbo: 320 }, dificil: { vel: 1.02, pausa: 0.28, azar: 0.3, turbo: 170 } };
   const NOMBRE_NIVEL = { facil: "Fácil", normal: "Normal", dificil: "Difícil" };
   const compu = () => modoJuego === "uno" || !origen[2];
-  let goles = { 1: 0, 2: 0 }, tiempo = DURACION, modo = "lobby", pausa = 0, anotador = 0, cpuPausa = 0, temblor = 0;
+  let goles = { 1: 0, 2: 0 }, tiempo = duracion, modo = "lobby", pausa = 0, anotador = 0, cpuPausa = 0, temblor = 0;
+
+  // ---------- sonido (sintetizado, sin archivos) ----------
+  let audio = null, sonido = true;
+  try { sonido = localStorage.getItem("futbol-sonido") !== "no"; } catch (e) {}
+  function despertarAudio() {
+    try {
+      if (!audio) audio = new (window.AudioContext || window.webkitAudioContext)();
+      if (audio.state === "suspended") audio.resume();
+    } catch (e) {}
+  }
+  // El navegador solo deja sonar después de que alguien toca la pantalla o el teclado
+  addEventListener("pointerdown", despertarAudio); addEventListener("keydown", despertarAudio);
+  const suena = () => sonido && audio && audio.state === "running";
+  function tono(frec, dur, tipo, vol, fin, demora = 0) {
+    if (!suena()) return;
+    const t = audio.currentTime + demora, o = audio.createOscillator(), v = audio.createGain();
+    o.type = tipo; o.frequency.setValueAtTime(frec, t); o.frequency.exponentialRampToValueAtTime(fin || frec, t + dur);
+    v.gain.setValueAtTime(vol, t); v.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    o.connect(v).connect(audio.destination); o.start(t); o.stop(t + dur);
+  }
+  function ruido(dur, vol, frec, subida = 0.005) {
+    if (!suena()) return;
+    const t = audio.currentTime, n = Math.floor(audio.sampleRate * dur);
+    const buf = audio.createBuffer(1, n, audio.sampleRate), d = buf.getChannelData(0);
+    for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
+    const f = audio.createBiquadFilter(), v = audio.createGain(), s = audio.createBufferSource();
+    f.type = "bandpass"; f.frequency.value = frec; f.Q.value = 0.8; s.buffer = buf;
+    v.gain.setValueAtTime(0.001, t); v.gain.exponentialRampToValueAtTime(vol, t + subida); v.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    s.connect(f).connect(v).connect(audio.destination); s.start(t);
+  }
+  function silbato(veces) {
+    if (!suena()) return;
+    for (let i = 0; i < veces; i++) {
+      const t = audio.currentTime + i * 0.38, dur = veces > 1 && i === veces - 1 ? 0.75 : 0.28;
+      const o = audio.createOscillator(), lfo = audio.createOscillator(), prof = audio.createGain(), v = audio.createGain();
+      o.frequency.value = 2500; lfo.frequency.value = 28; prof.gain.value = 110;
+      lfo.connect(prof).connect(o.frequency);
+      v.gain.setValueAtTime(0, t); v.gain.linearRampToValueAtTime(0.09, t + 0.02);
+      v.gain.setValueAtTime(0.09, t + dur - 0.05); v.gain.linearRampToValueAtTime(0, t + dur);
+      o.connect(v).connect(audio.destination); o.start(t); lfo.start(t); o.stop(t + dur); lfo.stop(t + dur);
+    }
+  }
+  const SON = {
+    patada: () => { tono(170, 0.14, "sine", 0.55, 45); ruido(0.06, 0.25, 1800); },
+    pique: v => { if (v > 160) tono(300, 0.07, "triangle", Math.min(0.18, v / 5000), 180); },
+    gol: () => {
+      ruido(2.2, 0.35, 850, 0.25);
+      [523, 659, 784, 1046].forEach((f, i) => tono(f, 0.35, "square", 0.06, f, i * 0.11));
+    },
+  };
+  function ponerSonido(si) {
+    sonido = si;
+    try { localStorage.setItem("futbol-sonido", si ? "si" : "no"); } catch (e) {}
+    $("sonido").textContent = `Sonido: ${si ? "sí" : "no"}`; $("sonido").setAttribute("aria-pressed", si);
+  }
 
   // ---------- conexión ----------
   let ws, intento = 0;
@@ -139,7 +205,7 @@
       const n = m.jugador;
       if (m.type === "estado") { m.jugadores.forEach(j => origen[j] = "tel"); pintarSlots(); }
       else if (m.type === "entra") { origen[n] = "tel"; saludar(n); pintarSlots(); }
-      else if (m.type === "sale") { if (origen[n] === "tel") origen[n] = null; entrada[n].x = entrada[n].y = 0; pintarSlots(); }
+      else if (m.type === "sale") { if (origen[n] === "tel") origen[n] = null; entrada[n].x = entrada[n].y = 0; entrada[n].correr = false; pintarSlots(); }
       else if (m.type === "mover" && entrada[n]) {
         if (n === 2 && modoJuego === "uno") return;
         entrada[n].x = Math.max(-1, Math.min(1, +m.x || 0));
@@ -147,7 +213,11 @@
       }
       else if (m.type === "patear" && entrada[n]) {
         if (modo === "lobby" || modo === "fin") empezar();
+        else if (pausado) alternarPausa();
         else if (!(n === 2 && modoJuego === "uno")) entrada[n].patear = true;
+      }
+      else if (m.type === "correr" && entrada[n]) {
+        if (!(n === 2 && modoJuego === "uno")) entrada[n].correr = !!m.on;
       }
     };
     ws.onclose = () => setTimeout(conectar, Math.min(4000, 500 * ++intento));
@@ -173,11 +243,13 @@
   // ---------- teclado ----------
   const teclas = new Set();
   const MAPA = {
-    1: { arr: "KeyW", aba: "KeyS", izq: "KeyA", der: "KeyD", pat: "Space" },
-    2: { arr: "ArrowUp", aba: "ArrowDown", izq: "ArrowLeft", der: "ArrowRight", pat: "Enter" },
+    1: { arr: "KeyW", aba: "KeyS", izq: "KeyA", der: "KeyD", pat: "Space", cor: "ShiftLeft" },
+    2: { arr: "ArrowUp", aba: "ArrowDown", izq: "ArrowLeft", der: "ArrowRight", pat: "Enter", cor: "ShiftRight" },
   };
   addEventListener("keydown", e => {
     if (e.target.tagName === "BUTTON" && (e.code === "Space" || e.code === "Enter")) return;
+    if (!e.repeat && (e.code === "KeyP" || e.code === "Escape")) alternarPausa();
+    if (!e.repeat && e.code === "KeyM") ponerSonido(!sonido);
     for (const k of [1, 2]) {
       const m = MAPA[k];
       if (Object.values(m).includes(e.code)) {
@@ -185,7 +257,9 @@
         const n = modoJuego === "uno" ? 1 : k;   // en modo 1 jugador ambos juegos de teclas mueven al J1
         if (origen[n] !== "tel") { origen[n] = "tecla"; pintarSlots(); }
         if (e.code === m.pat && !teclas.has(e.code)) {
-          if (modo === "lobby" || modo === "fin") empezar(); else entrada[n].patear = true;
+          if (modo === "lobby" || modo === "fin") empezar();
+          else if (pausado) alternarPausa();
+          else entrada[n].patear = true;
         }
       }
     }
@@ -202,13 +276,14 @@
       let y = (t("aba") ? 1 : 0) - (t("arr") ? 1 : 0);
       const d = Math.hypot(x, y) || 1;
       entrada[n].x = x / d; entrada[n].y = y / d;
+      entrada[n].correr = t("cor");
     }
   }
 
   // ---------- partido ----------
   function saque() {
     jug[1].x = C.izq + 230; jug[1].y = CY; jug[2].x = C.der - 230; jug[2].y = CY;
-    for (const n of [1, 2]) { jug[n].vx = jug[n].vy = 0; entrada[n].patear = false; }
+    for (const n of [1, 2]) { jug[n].vx = jug[n].vy = 0; entrada[n].patear = false; energia[n] = 1; cansado[n] = false; }
     balon.x = CX; balon.y = CY; balon.vx = balon.vy = 0; balon.rastro = [];
     modo = "saque"; pausa = 1.1; cpuPausa = 0.4;
   }
@@ -217,17 +292,48 @@
       $("lobby").hidden = false; $("mini").hidden = true; $("falta").hidden = false; return;
     }
     $("falta").hidden = true;
-    goles = { 1: 0, 2: 0 }; tiempo = DURACION;
+    goles = { 1: 0, 2: 0 }; tiempo = duracion; pausado = false; chispas.length = 0; $("pausa").textContent = "Pausa";
     $("lobby").hidden = true; $("mini").hidden = false;
     saque();
   }
-  function gol(quien) {
+  function gol(quien, lado) {
     goles[quien]++; anotador = quien; modo = "gol"; pausa = 2.2; temblor = 0.5;
+    festejo(lado, COLOR[quien]); SON.gol();
     mandar({ type: "gol", anotador: quien, marcador: goles });
   }
   function terminar() {
-    modo = "fin"; mandar({ type: "fin", marcador: goles });
+    modo = "fin"; silbato(3); mandar({ type: "fin", marcador: goles });
     setTimeout(() => { if (modo === "fin") { $("empezar").textContent = "Jugar de nuevo"; $("lobby").hidden = false; $("mini").hidden = true; } }, 3500);
+  }
+
+  function alternarPausa() {
+    if (modo === "lobby" || modo === "fin") return;
+    pausado = !pausado;
+    $("pausa").textContent = pausado ? "Seguir" : "Pausa";
+    if (!pausado) antes = performance.now();
+  }
+
+  // Papelitos que salen del arco cuando hay gol
+  function festejo(lado, color) {
+    const x = lado < 0 ? C.izq : C.der;
+    for (let i = 0; i < 110; i++) {
+      const azar = Math.random();
+      chispas.push({
+        x, y: CY + (Math.random() - 0.5) * ARCO,
+        vx: -lado * (120 + Math.random() * 480), vy: (Math.random() - 0.5) * 520 - 120,
+        vida: 1.4 + Math.random() * 1.2, giro: Math.random() * 6, tam: 4 + Math.random() * 6,
+        color: azar < 0.55 ? color : azar < 0.8 ? "#ffc23d" : "#f4f7f2",
+      });
+    }
+  }
+  function moverChispas(dt) {
+    const roce = Math.exp(-1.6 * dt);
+    for (let i = chispas.length - 1; i >= 0; i--) {
+      const c = chispas[i];
+      c.vx *= roce; c.vy = c.vy * roce + 420 * dt;
+      c.x += c.vx * dt; c.y += c.vy * dt; c.giro += 7 * dt; c.vida -= dt;
+      if (c.vida <= 0) chispas.splice(i, 1);
+    }
   }
 
   // ---------- la compu ----------
@@ -246,6 +352,7 @@
     const N = NIVELES[nivel];
     const fuerza = Math.min(1, d / 40) * N.vel;
     e.x = d > 2 ? dx / d * fuerza : 0; e.y = d > 2 ? dy / d * fuerza : 0;
+    e.correr = d > N.turbo;
     const bx = balon.x - p.x, by = balon.y - p.y, bd = Math.hypot(bx, by);
     if (bd < RJ + RB + 14 && cpuPausa <= 0 && (bx / bd) * ax + (by / bd) * ay > 0.55) {
       e.patear = true; cpuPausa = N.pausa + Math.random() * N.azar;
@@ -255,11 +362,13 @@
   // ---------- física ----------
   function actualizar(dt) {
     leerTeclado();
+    if (pausado) { for (const n of [1, 2]) entrada[n].patear = false; return; }
+    moverChispas(dt);
     if (modo === "juego" && compu()) cpu(dt);
     if (modo === "juego" || modo === "saque") {
       tiempo = modo === "juego" ? Math.max(0, tiempo - dt) : tiempo;
     }
-    if (modo === "saque") { pausa -= dt; if (pausa <= 0) modo = "juego"; }
+    if (modo === "saque") { pausa -= dt; if (pausa <= 0) { modo = "juego"; silbato(1); } }
     if (modo === "gol") { pausa -= dt; if (pausa <= 0) { if (tiempo <= 0) terminar(); else saque(); } }
     temblor = Math.max(0, temblor - dt);
     if (modo !== "juego") { for (const n of [1, 2]) entrada[n].patear = false; return; }
@@ -267,7 +376,12 @@
     for (const n of [1, 2]) {
       const p = jug[n], e = entrada[n];
       const k = 1 - Math.exp(-ACEL * dt);
-      p.vx += (e.x * VEL - p.vx) * k; p.vy += (e.y * VEL - p.vy) * k;
+      // Correr gasta energía; si se agota, hay que esperar a que se recargue un poco
+      if (energia[n] <= 0) cansado[n] = true; else if (energia[n] > 0.3) cansado[n] = false;
+      const corre = e.correr && !cansado[n] && Math.hypot(e.x, e.y) > 0.2;
+      energia[n] = corre ? Math.max(0, energia[n] - GASTO * dt) : Math.min(1, energia[n] + RECARGA * dt);
+      const tope = VEL * (corre ? TURBO : 1);
+      p.vx += (e.x * tope - p.vx) * k; p.vy += (e.y * tope - p.vy) * k;
       p.x += p.vx * dt; p.y += p.vy * dt;
       p.x = Math.max(C.izq - 30, Math.min(C.der + 30, p.x));
       p.y = Math.max(C.arr - 20, Math.min(C.aba + 20, p.y));
@@ -289,7 +403,7 @@
         const m = Math.hypot(e.x, e.y);
         if (m > 0.3) { ix = nx * 0.55 + (e.x / m) * 0.45; iy = ny * 0.55 + (e.y / m) * 0.45; const l = Math.hypot(ix, iy); ix /= l; iy /= l; }
         balon.vx = ix * PATADA + p.vx * 0.25; balon.vy = iy * PATADA + p.vy * 0.25;
-        enfriar[n] = 0.28; temblor = Math.max(temblor, 0.12);
+        enfriar[n] = 0.28; temblor = Math.max(temblor, 0.12); SON.patada();
       }
       e.patear = false;
       if (d < RJ + RB) {
@@ -305,8 +419,8 @@
     if (v > 1150) { balon.vx *= 1150 / v; balon.vy *= 1150 / v; }
     balon.x += balon.vx * dt; balon.y += balon.vy * dt;
     const enBoca = Math.abs(balon.y - CY) < ARCO / 2 - RB * 0.4;
-    if (balon.y < C.arr + RB) { balon.y = C.arr + RB; balon.vy = Math.abs(balon.vy) * 0.8; }
-    if (balon.y > C.aba - RB) { balon.y = C.aba - RB; balon.vy = -Math.abs(balon.vy) * 0.8; }
+    if (balon.y < C.arr + RB) { SON.pique(Math.abs(balon.vy)); balon.y = C.arr + RB; balon.vy = Math.abs(balon.vy) * 0.8; }
+    if (balon.y > C.aba - RB) { SON.pique(Math.abs(balon.vy)); balon.y = C.aba - RB; balon.vy = -Math.abs(balon.vy) * 0.8; }
     for (const lado of [-1, 1]) {
       const linea = lado < 0 ? C.izq : C.der;
       const fuera = lado < 0 ? balon.x < linea + RB : balon.x > linea - RB;
@@ -317,8 +431,9 @@
         if (balon.y < a1) { balon.y = a1; balon.vy = Math.abs(balon.vy) * 0.6; }
         if (balon.y > a2) { balon.y = a2; balon.vy = -Math.abs(balon.vy) * 0.6; }
         const pasoLinea = lado < 0 ? balon.x < linea - RB : balon.x > linea + RB;
-        if (pasoLinea) { gol(lado < 0 ? 2 : 1); return; }
+        if (pasoLinea) { gol(lado < 0 ? 2 : 1, lado); return; }
       } else {
+        SON.pique(Math.abs(balon.vx));
         balon.x = lado < 0 ? linea + RB : linea - RB;
         balon.vx = -balon.vx * 0.8;
       }
@@ -379,6 +494,18 @@
     }
     g.fillStyle = "#0a2016"; g.font = "400 18px Bungee, Arial Black, sans-serif"; g.textAlign = "center"; g.textBaseline = "middle";
     g.fillText(String(n), p.x, p.y + 1);
+    // barra de energía para correr (solo si no está llena)
+    if (energia[n] < 0.999 && modo !== "lobby") {
+      const ancho = 38, bx = p.x - ancho / 2, by = p.y + RJ + 9;
+      g.fillStyle = "rgba(10,32,22,.8)"; roundRect(bx - 2, by - 2, ancho + 4, 9, 4); g.fill();
+      g.fillStyle = cansado[n] ? "#ff6b5b" : "#ffc23d"; roundRect(bx, by, Math.max(2, ancho * energia[n]), 5, 2.5); g.fill();
+    }
+  }
+  function papelitos() {
+    for (const c of chispas) {
+      g.save(); g.globalAlpha = Math.min(1, c.vida); g.translate(c.x, c.y); g.rotate(c.giro);
+      g.fillStyle = c.color; g.fillRect(-c.tam / 2, -c.tam / 4, c.tam, c.tam / 2); g.restore();
+    }
   }
   function pelota() {
     balon.rastro.forEach(([x, y], i) => { g.fillStyle = `rgba(255,255,255,${i / 40})`; g.beginPath(); g.arc(x, y, RB * (i / 10), 0, Math.PI * 2); g.fill(); });
@@ -414,7 +541,8 @@
     g.setTransform(1, 0, 0, 1, 0, 0);
     const t = temblor > 0 ? temblor * 14 : 0;
     g.setTransform(esc, 0, 0, esc, ox + (Math.random() - .5) * t * esc, oy + (Math.random() - .5) * t * esc);
-    cancha(); jugador(1); jugador(2); pelota(); marcador();
+    cancha(); jugador(1); jugador(2); pelota(); papelitos(); marcador();
+    if (pausado) letrero("PAUSA", "Presioná P, Esc o PATEAR para seguir", "#f4f7f2");
     if (modo === "saque" && pausa < 0.9) letrero("¡YA!", null, "#ffc23d");
     if (modo === "gol") letrero("¡GOL!", `Anotó el jugador ${anotador}`, COLOR[anotador]);
     if (modo === "fin") {
@@ -450,7 +578,16 @@
     document.querySelectorAll("[data-nivel]").forEach(x => { x.classList.toggle("activo", x === b); x.setAttribute("aria-pressed", x === b); });
     pintarSlots();
   }));
+  document.querySelectorAll("[data-tiempo]").forEach(b => b.addEventListener("click", () => {
+    duracion = +b.dataset.tiempo;
+    document.querySelectorAll("[data-tiempo]").forEach(x => { x.classList.toggle("activo", x === b); x.setAttribute("aria-pressed", x === b); });
+    if (modo === "lobby" || modo === "fin") tiempo = duracion;
+  }));
   $("completa").addEventListener("click", () => { document.documentElement.requestFullscreen?.().catch(() => {}); });
+  $("sonido").addEventListener("click", () => { despertarAudio(); ponerSonido(!sonido); });
+  // blur: para que Espacio vuelva a patear y no a apretar el botón
+  $("pausa").addEventListener("click", e => { alternarPausa(); e.currentTarget.blur(); });
+  ponerSonido(sonido);
   pintarSlots();
   conectar();
 })();

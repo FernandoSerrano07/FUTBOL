@@ -6,8 +6,13 @@ lo escaneás con el teléfono y queda como mando con joystick y botón de **PATE
 
 - **Modo 1 jugador:** jugás contra la computadora, con dificultad Fácil, Normal o Difícil.
 - **Modo 2 jugadores:** jugador 1 (azul) contra jugador 2 (rojo), cada uno con su teléfono.
-- También funciona con teclado: J1 con W A S D + Espacio, J2 con flechas + Enter.
-- Partidos de 3 minutos, con marcador, "¡GOL!" en pantalla y vibración en el teléfono.
+- También funciona con teclado: J1 con W A S D + Espacio (Shift izquierdo para correr),
+  J2 con flechas + Enter (Shift derecho para correr).
+- Botón **CORRER**: mientras lo mantenés apretado vas más rápido, pero gastás energía.
+  La barra debajo del jugador muestra cuánta te queda y se recarga sola.
+- Partidos de 1, 3 o 5 minutos, con marcador, "¡GOL!" con papelitos en pantalla y vibración en el teléfono.
+- Sonidos de patada, silbato y festejo (se apagan con el botón **Sonido** o la tecla M).
+- Pausa con la tecla P o Esc, o con el botón **Pausa** de la esquina.
 
 Hecho en Python con FastAPI. El servidor crea las salas (código de 4 letras) y pasa
 los movimientos del teléfono a la pantalla por WebSocket.
@@ -62,7 +67,8 @@ Si preferís hacerlo a mano: **New +** → **Web Service**, elegí el repositori
 1. En la computadora abrí tu enlace de Render y tocá **Abrir la cancha en esta pantalla**.
 2. Escaneá el QR con la cámara del teléfono (o entrá al enlace y escribí el código).
 3. Presioná **PATEAR** en el teléfono o **Empezar partido** en la computadora.
-4. Mové el joystick para correr y tocá **PATEAR** cerca del balón para disparar.
+4. Mové el joystick para moverte y tocá **PATEAR** cerca del balón para disparar.
+   Mantené **CORRER** apretado para un pique rápido.
 
 ## Detalle del plan gratis de Render
 
