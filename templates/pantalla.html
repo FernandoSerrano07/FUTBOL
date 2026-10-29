@@ -1,0 +1,404 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Cancha · Fútbol Control</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bungee&family=Barlow+Semi+Condensed:wght@500;700&display=swap">
+<style>
+  :root {
+    --fondo: #08190f; --cal: #f4f7f2; --suave: #a9c9b5; --ambar: #ffc23d; --tinta: #0a2016;
+    --azul: #3fa9ff; --rojo: #ff5b5b;
+    --display: "Bungee", "Arial Black", Impact, sans-serif;
+    --texto: "Barlow Semi Condensed", "Arial Narrow", system-ui, sans-serif;
+  }
+  [hidden] { display: none !important; }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; overflow: hidden; background: var(--fondo); color: var(--cal); font-family: var(--texto); }
+  canvas { display: block; width: 100%; height: 100%; }
+  .capa { position: fixed; inset: 0; display: grid; place-items: center; padding: 16px; background: rgba(6,20,12,.82); }
+  .tarjeta {
+    width: min(760px, 100%); display: grid; grid-template-columns: auto 1fr; gap: 28px; align-items: center;
+    background: var(--tinta); border: 3px solid var(--cal); border-radius: 22px; padding: 28px;
+  }
+  @media (max-width: 640px) { .tarjeta { grid-template-columns: 1fr; text-align: center; justify-items: center; } }
+  .qr { width: 230px; aspect-ratio: 1; background: #fff; border-radius: 14px; padding: 6px; }
+  .qr img { width: 100%; height: 100%; display: block; }
+  .info { display: grid; gap: 14px; min-width: 0; }
+  .info h1 { margin: 0; font: 400 30px/1 var(--display); }
+  .info h1 span { color: var(--ambar); }
+  .paso { margin: 0; font-size: 18px; color: var(--suave); }
+  .codigo { font: 400 46px/1 var(--display); letter-spacing: 10px; color: var(--ambar); }
+  .url { font-size: 15px; color: var(--suave); overflow-wrap: anywhere; }
+  .slots { display: flex; gap: 10px; flex-wrap: wrap; }
+  .slot { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: 10px; border: 2px solid rgba(244,247,242,.25); font-weight: 700; font-size: 16px; }
+  .slot i { width: 16px; height: 16px; border-radius: 50%; }
+  .slot.listo { border-color: var(--cal); }
+  .acciones { display: flex; gap: 10px; flex-wrap: wrap; }
+  button {
+    font: 700 18px/1 var(--texto); text-transform: uppercase; letter-spacing: 1.2px; cursor: pointer;
+    padding: 14px 20px; border-radius: 12px; border: 3px solid var(--ambar); background: var(--ambar); color: var(--tinta);
+  }
+  button.sec { background: transparent; color: var(--cal); border-color: var(--cal); }
+  button:focus-visible { outline: 3px solid var(--cal); outline-offset: 3px; }
+  .teclas { font-size: 14px; color: var(--suave); margin: 0; }
+  #mini {
+    position: fixed; right: max(12px, env(safe-area-inset-right)); bottom: max(12px, env(safe-area-inset-bottom));
+    display: flex; gap: 10px; align-items: center; background: rgba(10,32,22,.85); border: 2px solid rgba(244,247,242,.3);
+    border-radius: 12px; padding: 8px 10px 8px 8px; font-size: 14px; color: var(--suave);
+  }
+  #mini img { width: 64px; height: 64px; background: #fff; border-radius: 6px; padding: 2px; }
+  #mini b { display: block; font: 400 20px/1 var(--display); letter-spacing: 4px; color: var(--ambar); }
+</style>
+</head>
+<body>
+<canvas id="cancha" aria-label="Cancha de fútbol"></canvas>
+
+<div class="capa" id="lobby">
+  <div class="tarjeta">
+    <div class="qr"><img id="qr" alt="Código QR para unirse"></div>
+    <div class="info">
+      <h1>Fútbol <span>Control</span></h1>
+      <p class="paso">Escaneá el código con la cámara del teléfono, o entrá a la página y escribí:</p>
+      <div class="codigo" id="codigo">----</div>
+      <div class="url" id="url"></div>
+      <div class="slots">
+        <div class="slot" id="slot1"><i style="background:var(--azul)"></i><span>Jugador 1: esperando</span></div>
+        <div class="slot" id="slot2"><i style="background:var(--rojo)"></i><span>Jugador 2: la compu</span></div>
+      </div>
+      <div class="acciones">
+        <button id="empezar">Empezar partido</button>
+        <button class="sec" id="completa">Pantalla completa</button>
+      </div>
+      <p class="teclas">También se puede jugar con el teclado. Jugador 1: W A S D y Espacio. Jugador 2: flechas y Enter. Partido de 3 minutos. Con PATEAR en el teléfono también empieza.</p>
+    </div>
+  </div>
+</div>
+
+<div id="mini" hidden><img id="qrmini" alt=""><div>Unite con<b id="codmini">----</b></div></div>
+
+<script>
+(() => {
+  // ---------- configuración ----------
+  const W = 1200, H = 700;
+  const C = { izq: 70, der: 1130, arr: 70, aba: 630 };
+  const CX = (C.izq + C.der) / 2, CY = (C.arr + C.aba) / 2;
+  const ARCO = 190, PROF = 42;                 // ancho y profundidad del arco
+  const RJ = 21, RB = 11;                       // radios jugador y balón
+  const VEL = 340, ACEL = 11, PATADA = 780, ROCE = 1.05;
+  const DURACION = 180;
+  const COLOR = { 1: "#3fa9ff", 2: "#ff5b5b" };
+
+  const codigo = location.pathname.split("/").pop().toUpperCase();
+  const enlace = `${location.origin}/c/${codigo}`;
+  const $ = id => document.getElementById(id);
+  $("codigo").textContent = codigo; $("codmini").textContent = codigo; $("url").textContent = enlace;
+  $("qr").src = $("qrmini").src = "/qr?data=" + encodeURIComponent(enlace);
+
+  // ---------- estado ----------
+  const jug = {
+    1: { x: 0, y: 0, vx: 0, vy: 0, ataca: -1 },   // ataca: lado del arco rival (1 = derecha)
+    2: { x: 0, y: 0, vx: 0, vy: 0, ataca: -1 },
+  };
+  jug[1].ataca = 1; jug[2].ataca = -1;
+  const balon = { x: CX, y: CY, vx: 0, vy: 0, rastro: [] };
+  const entrada = { 1: { x: 0, y: 0, patear: false }, 2: { x: 0, y: 0, patear: false } };
+  const origen = { 1: null, 2: null };        // "tel" | "tecla" | null
+  const enfriar = { 1: 0, 2: 0 };
+  let goles = { 1: 0, 2: 0 }, tiempo = DURACION, modo = "lobby", pausa = 0, anotador = 0, cpuPausa = 0, temblor = 0;
+
+  // ---------- conexión ----------
+  let ws, intento = 0;
+  function conectar() {
+    const proto = location.protocol === "https:" ? "wss" : "ws";
+    ws = new WebSocket(`${proto}://${location.host}/ws/${codigo}/pantalla`);
+    ws.onopen = () => { intento = 0; mandar({ type: "hola" }); };
+    ws.onmessage = ev => {
+      let m; try { m = JSON.parse(ev.data); } catch (e) { return; }
+      const n = m.jugador;
+      if (m.type === "estado") { m.jugadores.forEach(j => origen[j] = "tel"); pintarSlots(); }
+      else if (m.type === "entra") { origen[n] = "tel"; mandar({ type: "hola", para: n }); pintarSlots(); }
+      else if (m.type === "sale") { if (origen[n] === "tel") origen[n] = null; entrada[n].x = entrada[n].y = 0; pintarSlots(); }
+      else if (m.type === "mover" && entrada[n]) {
+        entrada[n].x = Math.max(-1, Math.min(1, +m.x || 0));
+        entrada[n].y = Math.max(-1, Math.min(1, +m.y || 0));
+      }
+      else if (m.type === "patear" && entrada[n]) { if (modo === "lobby" || modo === "fin") empezar(); else entrada[n].patear = true; }
+    };
+    ws.onclose = () => setTimeout(conectar, Math.min(4000, 500 * ++intento));
+  }
+  function mandar(o) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(o)); }
+
+  function pintarSlots() {
+    [1, 2].forEach(n => {
+      const s = $("slot" + n), o = origen[n];
+      const txt = o === "tel" ? "con teléfono" : o === "tecla" ? "con teclado" : (n === 1 ? "esperando" : "la compu");
+      s.querySelector("span").textContent = `Jugador ${n}: ${txt}`;
+      s.classList.toggle("listo", !!o);
+    });
+  }
+
+  // ---------- teclado ----------
+  const teclas = new Set();
+  const MAPA = {
+    1: { arr: "KeyW", aba: "KeyS", izq: "KeyA", der: "KeyD", pat: "Space" },
+    2: { arr: "ArrowUp", aba: "ArrowDown", izq: "ArrowLeft", der: "ArrowRight", pat: "Enter" },
+  };
+  addEventListener("keydown", e => {
+    if (e.target.tagName === "BUTTON" && (e.code === "Space" || e.code === "Enter")) return;
+    for (const n of [1, 2]) {
+      const m = MAPA[n];
+      if (Object.values(m).includes(e.code)) {
+        e.preventDefault();
+        if (origen[n] !== "tel") { origen[n] = "tecla"; pintarSlots(); }
+        if (e.code === m.pat && !teclas.has(e.code)) {
+          if (modo === "lobby" || modo === "fin") empezar(); else entrada[n].patear = true;
+        }
+      }
+    }
+    teclas.add(e.code);
+  });
+  addEventListener("keyup", e => teclas.delete(e.code));
+  function leerTeclado() {
+    for (const n of [1, 2]) {
+      if (origen[n] !== "tecla") continue;
+      const m = MAPA[n];
+      let x = (teclas.has(m.der) ? 1 : 0) - (teclas.has(m.izq) ? 1 : 0);
+      let y = (teclas.has(m.aba) ? 1 : 0) - (teclas.has(m.arr) ? 1 : 0);
+      const d = Math.hypot(x, y) || 1;
+      entrada[n].x = x / d; entrada[n].y = y / d;
+    }
+  }
+
+  // ---------- partido ----------
+  function saque() {
+    jug[1].x = C.izq + 230; jug[1].y = CY; jug[2].x = C.der - 230; jug[2].y = CY;
+    for (const n of [1, 2]) { jug[n].vx = jug[n].vy = 0; entrada[n].patear = false; }
+    balon.x = CX; balon.y = CY; balon.vx = balon.vy = 0; balon.rastro = [];
+    modo = "saque"; pausa = 1.1; cpuPausa = 0.4;
+  }
+  function empezar() {
+    goles = { 1: 0, 2: 0 }; tiempo = DURACION;
+    $("lobby").hidden = true; $("mini").hidden = false;
+    saque();
+  }
+  function gol(quien) {
+    goles[quien]++; anotador = quien; modo = "gol"; pausa = 2.2; temblor = 0.5;
+    mandar({ type: "gol", anotador: quien, marcador: goles });
+  }
+  function terminar() {
+    modo = "fin"; mandar({ type: "fin", marcador: goles });
+  }
+
+  // ---------- la compu ----------
+  function cpu(dt) {
+    const p = jug[2], e = entrada[2];
+    cpuPausa -= dt;
+    const meta = { x: C.izq - 10, y: CY + (Math.sin(performance.now() / 900) * ARCO * 0.25) };
+    const propio = { x: C.der, y: CY };
+    let ax = meta.x - balon.x, ay = meta.y - balon.y; const ad = Math.hypot(ax, ay) || 1; ax /= ad; ay /= ad;
+    let tx = balon.x - ax * (RJ + RB + 4), ty = balon.y - ay * (RJ + RB + 4);
+    // Si quedó del lado equivocado del balón, lo rodea
+    if (p.x < balon.x - 8) { ty = balon.y + (p.y < balon.y ? -1 : 1) * (RJ + RB + 26); tx = balon.x + 30; }
+    // Si el balón viene rápido hacia su arco, se mete a defender
+    if (balon.vx > 220 && balon.x > CX) { tx = (balon.x + propio.x) / 2 + 40; ty = (balon.y + propio.y) / 2; }
+    let dx = tx - p.x, dy = ty - p.y; const d = Math.hypot(dx, dy);
+    const fuerza = Math.min(1, d / 40) * 0.84;
+    e.x = d > 2 ? dx / d * fuerza : 0; e.y = d > 2 ? dy / d * fuerza : 0;
+    const bx = balon.x - p.x, by = balon.y - p.y, bd = Math.hypot(bx, by);
+    if (bd < RJ + RB + 14 && cpuPausa <= 0 && (bx / bd) * ax + (by / bd) * ay > 0.55) {
+      e.patear = true; cpuPausa = 0.55 + Math.random() * 0.6;
+    }
+  }
+
+  // ---------- física ----------
+  function actualizar(dt) {
+    leerTeclado();
+    if (modo === "juego" && !origen[2]) cpu(dt);
+    if (modo === "juego" || modo === "saque") {
+      tiempo = modo === "juego" ? Math.max(0, tiempo - dt) : tiempo;
+    }
+    if (modo === "saque") { pausa -= dt; if (pausa <= 0) modo = "juego"; }
+    if (modo === "gol") { pausa -= dt; if (pausa <= 0) { if (tiempo <= 0) terminar(); else saque(); } }
+    temblor = Math.max(0, temblor - dt);
+    if (modo !== "juego") { for (const n of [1, 2]) entrada[n].patear = false; return; }
+
+    for (const n of [1, 2]) {
+      const p = jug[n], e = entrada[n];
+      const k = 1 - Math.exp(-ACEL * dt);
+      p.vx += (e.x * VEL - p.vx) * k; p.vy += (e.y * VEL - p.vy) * k;
+      p.x += p.vx * dt; p.y += p.vy * dt;
+      p.x = Math.max(C.izq - 30, Math.min(C.der + 30, p.x));
+      p.y = Math.max(C.arr - 20, Math.min(C.aba + 20, p.y));
+      enfriar[n] = Math.max(0, enfriar[n] - dt);
+    }
+    // choque entre jugadores
+    {
+      const a = jug[1], b = jug[2];
+      let dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy);
+      if (d < RJ * 2 && d > 0) { const s = (RJ * 2 - d) / 2; dx /= d; dy /= d; a.x -= dx * s; a.y -= dy * s; b.x += dx * s; b.y += dy * s; }
+    }
+    // patadas y choques con el balón
+    for (const n of [1, 2]) {
+      const p = jug[n], e = entrada[n];
+      let dx = balon.x - p.x, dy = balon.y - p.y, d = Math.hypot(dx, dy) || 0.001;
+      const nx = dx / d, ny = dy / d;
+      if (e.patear && enfriar[n] <= 0 && d < RJ + RB + 18) {
+        let ix = nx, iy = ny;
+        const m = Math.hypot(e.x, e.y);
+        if (m > 0.3) { ix = nx * 0.55 + (e.x / m) * 0.45; iy = ny * 0.55 + (e.y / m) * 0.45; const l = Math.hypot(ix, iy); ix /= l; iy /= l; }
+        balon.vx = ix * PATADA + p.vx * 0.25; balon.vy = iy * PATADA + p.vy * 0.25;
+        enfriar[n] = 0.28; temblor = Math.max(temblor, 0.12);
+      }
+      e.patear = false;
+      if (d < RJ + RB) {
+        balon.x = p.x + nx * (RJ + RB); balon.y = p.y + ny * (RJ + RB);
+        const rv = (balon.vx - p.vx) * nx + (balon.vy - p.vy) * ny;
+        if (rv < 0) { balon.vx -= 1.5 * rv * nx; balon.vy -= 1.5 * rv * ny; }
+      }
+    }
+    // balón
+    const r = Math.exp(-ROCE * dt);
+    balon.vx *= r; balon.vy *= r;
+    const v = Math.hypot(balon.vx, balon.vy);
+    if (v > 1150) { balon.vx *= 1150 / v; balon.vy *= 1150 / v; }
+    balon.x += balon.vx * dt; balon.y += balon.vy * dt;
+    const enBoca = Math.abs(balon.y - CY) < ARCO / 2 - RB * 0.4;
+    if (balon.y < C.arr + RB) { balon.y = C.arr + RB; balon.vy = Math.abs(balon.vy) * 0.8; }
+    if (balon.y > C.aba - RB) { balon.y = C.aba - RB; balon.vy = -Math.abs(balon.vy) * 0.8; }
+    for (const lado of [-1, 1]) {
+      const linea = lado < 0 ? C.izq : C.der;
+      const fuera = lado < 0 ? balon.x < linea + RB : balon.x > linea - RB;
+      if (!fuera) continue;
+      if (enBoca) {
+        // dentro del arco: los palos lo contienen
+        const a1 = CY - ARCO / 2 + RB, a2 = CY + ARCO / 2 - RB;
+        if (balon.y < a1) { balon.y = a1; balon.vy = Math.abs(balon.vy) * 0.6; }
+        if (balon.y > a2) { balon.y = a2; balon.vy = -Math.abs(balon.vy) * 0.6; }
+        const pasoLinea = lado < 0 ? balon.x < linea - RB : balon.x > linea + RB;
+        if (pasoLinea) { gol(lado < 0 ? 2 : 1); return; }
+      } else {
+        balon.x = lado < 0 ? linea + RB : linea - RB;
+        balon.vx = -balon.vx * 0.8;
+      }
+    }
+    balon.rastro.push([balon.x, balon.y]); if (balon.rastro.length > 10) balon.rastro.shift();
+    if (tiempo <= 0) terminar();
+  }
+
+  // ---------- dibujo ----------
+  const lienzo = $("cancha"), g = lienzo.getContext("2d");
+  let esc = 1, ox = 0, oy = 0;
+  function medir() {
+    const dpr = Math.min(2, devicePixelRatio || 1);
+    lienzo.width = innerWidth * dpr; lienzo.height = innerHeight * dpr;
+    esc = Math.min(lienzo.width / W, lienzo.height / H);
+    ox = (lienzo.width - W * esc) / 2; oy = (lienzo.height - H * esc) / 2;
+  }
+  addEventListener("resize", medir); medir();
+
+  function cancha() {
+    g.fillStyle = "#08190f"; g.fillRect(-ox / esc, -oy / esc, lienzo.width / esc, lienzo.height / esc);
+    const franjas = 12, ancho = (C.der - C.izq) / franjas;
+    for (let i = 0; i < franjas; i++) { g.fillStyle = i % 2 ? "#17643a" : "#1b7343"; g.fillRect(C.izq + i * ancho, C.arr - 40, ancho, C.aba - C.arr + 80); }
+    g.strokeStyle = "rgba(244,247,242,.9)"; g.lineWidth = 4;
+    g.strokeRect(C.izq, C.arr, C.der - C.izq, C.aba - C.arr);
+    g.beginPath(); g.moveTo(CX, C.arr); g.lineTo(CX, C.aba); g.stroke();
+    g.beginPath(); g.arc(CX, CY, 80, 0, Math.PI * 2); g.stroke();
+    g.fillStyle = "rgba(244,247,242,.9)"; g.beginPath(); g.arc(CX, CY, 5, 0, Math.PI * 2); g.fill();
+    for (const lado of [-1, 1]) {
+      const x = lado < 0 ? C.izq : C.der;
+      g.strokeRect(lado < 0 ? x : x - 150, CY - 170, 150, 340);
+      g.strokeRect(lado < 0 ? x : x - 55, CY - 85, 55, 170);
+      g.beginPath(); g.arc(x - lado * 105, CY, 4, 0, Math.PI * 2); g.fill();
+      // arco con red
+      const gx = lado < 0 ? x - PROF : x;
+      g.fillStyle = "rgba(244,247,242,.12)"; g.fillRect(gx, CY - ARCO / 2, PROF, ARCO);
+      g.save(); g.beginPath(); g.rect(gx, CY - ARCO / 2, PROF, ARCO); g.clip();
+      g.strokeStyle = "rgba(244,247,242,.35)"; g.lineWidth = 1.5;
+      for (let i = -ARCO; i < ARCO * 2; i += 12) { g.beginPath(); g.moveTo(gx, CY - ARCO / 2 + i); g.lineTo(gx + PROF, CY - ARCO / 2 + i + PROF); g.stroke(); g.beginPath(); g.moveTo(gx + PROF, CY - ARCO / 2 + i); g.lineTo(gx, CY - ARCO / 2 + i + PROF); g.stroke(); }
+      g.restore();
+      g.strokeStyle = "#ffffff"; g.lineWidth = 6;
+      g.beginPath(); g.moveTo(x, CY - ARCO / 2); g.lineTo(gx + (lado < 0 ? 0 : PROF), CY - ARCO / 2); g.lineTo(gx + (lado < 0 ? 0 : PROF), CY + ARCO / 2); g.lineTo(x, CY + ARCO / 2); g.stroke();
+      g.fillStyle = "rgba(244,247,242,.9)";
+    }
+  }
+  function jugador(n) {
+    const p = jug[n];
+    g.fillStyle = "rgba(0,0,0,.3)"; g.beginPath(); g.ellipse(p.x + 4, p.y + 8, RJ, RJ * 0.7, 0, 0, Math.PI * 2); g.fill();
+    g.fillStyle = COLOR[n]; g.beginPath(); g.arc(p.x, p.y, RJ, 0, Math.PI * 2); g.fill();
+    g.lineWidth = 4; g.strokeStyle = "#f4f7f2"; g.stroke();
+    const v = Math.hypot(p.vx, p.vy);
+    if (v > 30) {
+      const a = Math.atan2(p.vy, p.vx);
+      g.fillStyle = "#f4f7f2"; g.beginPath();
+      g.moveTo(p.x + Math.cos(a) * (RJ + 9), p.y + Math.sin(a) * (RJ + 9));
+      g.lineTo(p.x + Math.cos(a + 0.45) * (RJ + 1), p.y + Math.sin(a + 0.45) * (RJ + 1));
+      g.lineTo(p.x + Math.cos(a - 0.45) * (RJ + 1), p.y + Math.sin(a - 0.45) * (RJ + 1)); g.fill();
+    }
+    g.fillStyle = "#0a2016"; g.font = "400 18px Bungee, Arial Black, sans-serif"; g.textAlign = "center"; g.textBaseline = "middle";
+    g.fillText(String(n), p.x, p.y + 1);
+  }
+  function pelota() {
+    balon.rastro.forEach(([x, y], i) => { g.fillStyle = `rgba(255,255,255,${i / 40})`; g.beginPath(); g.arc(x, y, RB * (i / 10), 0, Math.PI * 2); g.fill(); });
+    g.fillStyle = "rgba(0,0,0,.35)"; g.beginPath(); g.ellipse(balon.x + 3, balon.y + 6, RB, RB * 0.7, 0, 0, Math.PI * 2); g.fill();
+    g.fillStyle = "#ffffff"; g.beginPath(); g.arc(balon.x, balon.y, RB, 0, Math.PI * 2); g.fill();
+    g.strokeStyle = "#0a2016"; g.lineWidth = 2; g.stroke();
+    g.fillStyle = "#0a2016"; g.beginPath(); g.arc(balon.x, balon.y, RB * 0.38, 0, Math.PI * 2); g.fill();
+  }
+  function marcador() {
+    const m = Math.floor(tiempo / 60), s = Math.floor(tiempo % 60);
+    g.textAlign = "center"; g.textBaseline = "middle";
+    g.fillStyle = "#0a2016"; roundRect(CX - 160, 14, 320, 46, 12); g.fill();
+    g.fillStyle = COLOR[1]; roundRect(CX - 160, 14, 80, 46, 12); g.fill();
+    g.fillStyle = COLOR[2]; roundRect(CX + 80, 14, 80, 46, 12); g.fill();
+    g.font = "400 28px Bungee, Arial Black, sans-serif"; g.fillStyle = "#0a2016";
+    g.fillText(goles[1], CX - 120, 38); g.fillText(goles[2], CX + 120, 38);
+    g.fillStyle = tiempo < 15 ? "#ffc23d" : "#f4f7f2"; g.font = "400 24px Bungee, Arial Black, sans-serif";
+    g.fillText(`${m}:${String(s).padStart(2, "0")}`, CX, 38);
+    g.font = "700 15px 'Barlow Semi Condensed', Arial, sans-serif"; g.fillStyle = "rgba(244,247,242,.75)";
+    const etiqueta = n => origen[n] === "tel" ? "Teléfono" : origen[n] === "tecla" ? "Teclado" : (n === 2 ? "Compu" : "Sin control");
+    g.textAlign = "right"; g.fillText(`J1 · ${etiqueta(1)}`, CX - 175, 38);
+    g.textAlign = "left"; g.fillText(`J2 · ${etiqueta(2)}`, CX + 175, 38);
+  }
+  function roundRect(x, y, w, h, r) { g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r); g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath(); }
+  function letrero(texto, sub, color) {
+    g.textAlign = "center"; g.textBaseline = "middle";
+    g.font = "400 96px Bungee, Arial Black, sans-serif"; g.lineWidth = 10; g.strokeStyle = "#0a2016";
+    g.strokeText(texto, CX, CY - 20); g.fillStyle = color; g.fillText(texto, CX, CY - 20);
+    if (sub) { g.font = "700 28px 'Barlow Semi Condensed', Arial, sans-serif"; g.lineWidth = 6; g.strokeText(sub, CX, CY + 48); g.fillStyle = "#f4f7f2"; g.fillText(sub, CX, CY + 48); }
+  }
+  function dibujar() {
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    const t = temblor > 0 ? temblor * 14 : 0;
+    g.setTransform(esc, 0, 0, esc, ox + (Math.random() - .5) * t * esc, oy + (Math.random() - .5) * t * esc);
+    cancha(); jugador(1); jugador(2); pelota(); marcador();
+    if (modo === "saque" && pausa < 0.9) letrero("¡YA!", null, "#ffc23d");
+    if (modo === "gol") letrero("¡GOL!", `Anotó el jugador ${anotador}`, COLOR[anotador]);
+    if (modo === "fin") {
+      const g1 = goles[1], g2 = goles[2];
+      const t1 = g1 === g2 ? "EMPATE" : `GANA J${g1 > g2 ? 1 : 2}`;
+      letrero(t1, `${g1} – ${g2} · Presioná PATEAR para la revancha`, g1 === g2 ? "#ffc23d" : COLOR[g1 > g2 ? 1 : 2]);
+    }
+  }
+
+  // ---------- ciclo ----------
+  saque(); modo = "lobby";
+  let antes = performance.now();
+  function cuadro(ahora) {
+    const dt = Math.min(0.033, (ahora - antes) / 1000); antes = ahora;
+    // pasos fijos para que el balón no atraviese a los jugadores
+    const pasos = 2; for (let i = 0; i < pasos; i++) actualizar(dt / pasos);
+    dibujar();
+    requestAnimationFrame(cuadro);
+  }
+  requestAnimationFrame(cuadro);
+
+  $("empezar").addEventListener("click", empezar);
+  $("completa").addEventListener("click", () => { document.documentElement.requestFullscreen?.().catch(() => {}); });
+  pintarSlots();
+  conectar();
+})();
+</script>
+</body>
+</html>
